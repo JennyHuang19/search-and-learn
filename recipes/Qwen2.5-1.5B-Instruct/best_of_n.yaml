@@ -1,6 +1,8 @@
 # refer to src/sal/config.py for more options
 
 model_path: Qwen/Qwen2.5-1.5B-Instruct
+prm_path: Qwen/Qwen2.5-Math-PRM-7B
+dataset_name: math-ai/aime25 # HuggingFaceH4/MATH-500, AI-MO/NuminaMath-CoT, math-ai/aime25
 custom_chat_template: null
 approach: best_of_n
 n: 4
