@@ -114,7 +114,7 @@ def extract_completion_answers(
         }
 
 
-def compute_naive_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
+def compute_naive_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
     preds = x[f"preds@{n}"]
     scores = x[f"agg_scores@{n}"]
     preds = [
@@ -123,7 +123,7 @@ def compute_naive_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
     return {f"pred_naive@{n}": "\\boxed{" + preds[0][0] + "}"}
 
 
-def compute_weighted_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
+def compute_weighted_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
     preds = x[f"preds@{n}"]
     scores = x[f"agg_scores@{n}"]
     return {
@@ -133,7 +133,7 @@ def compute_weighted_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str
     }
 
 
-def compute_maj_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
+def compute_maj_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
     preds = x[f"preds@{n}"]
     return {f"pred_maj@{n}": "\\boxed{" + find_majority_answer(preds) + "}"}
 
@@ -275,3 +275,31 @@ def compute_level(
         return {f"level_{name}": 2}
     else:
         return {f"level_{name}": 1}
+
+def add_indicator_columns(x, n):
+    # Each pred_*@{n} is a string, but you want a list for batch processing.
+    # If using batched=True, these will be lists; if not, wrap in a list.
+    weighted_pred = compute_weighted_pred(x, n)[f"pred_weighted@{n}"] # string.
+    maj_pred = compute_maj_pred(x, n)[f"pred_maj@{n}"]
+    naive_pred = compute_naive_pred(x, n)[f"pred_naive@{n}"]
+    true_answer = x["answer"] # string.
+
+    weighted_ind = compute_prediction_indicator(weighted_pred, true_answer)
+    maj_ind = compute_prediction_indicator(maj_pred, true_answer)
+    naive_ind = compute_prediction_indicator(naive_pred, true_answer)
+
+    return {
+        f"indicator_weighted@{n}": weighted_ind,
+        f"indicator_maj@{n}": maj_ind,
+        f"indicator_naive@{n}": naive_ind,
+    }      
+
+
+def compute_prediction_indicator(
+    pred: str,
+    true_answer: str,
+) -> int:
+    """
+    Returns 1 if the canonical form of pred matches the canonical form of true_answer, else 0.
+    """
+    return int(memoized_canonical_form(pred) == memoized_canonical_form(true_answer))

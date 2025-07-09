@@ -27,6 +27,7 @@ from sal.utils.math import (
     compute_weighted_pred,
     extract_completion_answers,
     subsample_completions,
+    add_indicator_columns,
 )
 
 
@@ -78,6 +79,13 @@ def score(dataset: Dataset, config: Config) -> Dataset:
             fn_kwargs={"n": n},
             num_proc=config.num_proc,
             desc=f"Compute naive pred {n}",
+        )
+         # Add indicator columns
+        dataset = dataset.map(
+            add_indicator_columns,
+            fn_kwargs={"n": n},
+            num_proc=config.num_proc,
+            desc=f"Add indicator columns {n}",
         )
         # Nuke unused columns to keep dataset lean
         dataset = dataset.remove_columns(
