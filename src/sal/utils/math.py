@@ -301,5 +301,12 @@ def compute_prediction_indicator(
 ) -> int:
     """
     Returns 1 if the canonical form of pred matches the canonical form of true_answer, else 0.
+    Removes \boxed{} wrapper from pred before canonicalization.
     """
-    return int(memoized_canonical_form(pred) == memoized_canonical_form(true_answer))
+    # Remove \boxed{} wrapper if present
+    if pred.startswith("\\boxed{") and pred.endswith("}"):
+        unboxed_pred = pred[7:-1]  # Remove \boxed{ and }
+    else:
+        unboxed_pred = pred
+    
+    return int(memoized_canonical_form(unboxed_pred) == memoized_canonical_form(true_answer))

@@ -55,7 +55,7 @@ def main():
     prm = load_prm(config)
 
     dataset = get_dataset(config)
-    dataset = dataset.map(
+    dataset = dataset.map( # completions, scores, pred, completion_tokens.
         approach_fn,
         batched=True,
         batch_size=config.search_batch_size,

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import numpy as np
+import torch
 from vllm import LLM, SamplingParams
 
 from sal.config import Config
@@ -54,11 +55,34 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
         n=1,  # Since we've already duplicated the prompt_token_ids, we only need to generate 1 completion per prompt
     )
 
-    responses = llm.generate(
-        templated_convs,
-        sampling_params=sampling_params,
-        use_tqdm=False,
-    )
+    # Process conversations in batches of 8
+    batch_size = 8
+    all_responses = []
+    
+    for i in range(0, len(templated_convs), batch_size):
+        batch_convs = templated_convs[i:i + batch_size]
+        
+        # Print GPU memory usage before processing batch
+        try:
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+                reserved = torch.cuda.memory_reserved() / 1024**3    # GB
+                max_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
+                print(f"Batch {i//batch_size + 1}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB, Max: {max_memory:.2f}GB")
+            else:
+                print(f"Batch {i//batch_size + 1}: Processing batch of size {len(batch_convs)}")
+        except Exception as e:
+            print(f"Batch {i//batch_size + 1}: Processing batch of size {len(batch_convs)} (GPU monitoring unavailable: {e})")
+        
+        batch_responses = llm.generate(
+            batch_convs,
+            sampling_params=sampling_params,
+            use_tqdm=False,
+        )
+        all_responses.extend(batch_responses)
+    
+    responses = all_responses
+    
     if len(responses) != len(x["problem"]) * config.n:
         raise ValueError(
             f"Generated {len(responses)} responses instead of {len(x['problem'] * config.n)}"
@@ -81,7 +105,42 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
         if len(c) != config.n:
             raise ValueError(f"Generated {len(c)} completions instead of {config.n}")
 
-    scores = prm.score(x["problem"], completions)
+    # scores = prm.score(x["problem"], completions) # (to-do: batch this). print statements to figure out where oom occurs.
+
+    ### Batched scoring
+    batch_size = 8
+    all_scores = []
+    print(f"Starting scoring: {len(x['problem'])} problems, batch size {batch_size}")
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.memory_reserved() / 1024**3
+        print(f"[Before scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+    for i in range(0, len(x["problem"]), batch_size):
+        batch_problems = x["problem"][i:i + batch_size]
+        batch_completions = completions[i:i + batch_size]
+        try:
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                print(f"[Before batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+            batch_scores = prm.score(batch_problems, batch_completions)
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                print(f"[After batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+            print(f"Batch {i//batch_size + 1}: Scored {len(batch_scores)} problems.")
+        except Exception as e:
+            print(f"OOM or error during scoring batch {i//batch_size + 1}: {e}")
+            raise
+        all_scores.extend(batch_scores)
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.memory_reserved() / 1024**3
+        print(f"[After scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+    scores = all_scores
+
+    ###
+
     agg_scores = [
         [aggregate_scores(s, config.agg_strategy) for s in score] for score in scores
     ]
