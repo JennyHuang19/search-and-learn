@@ -62,7 +62,7 @@ def main():
         fn_kwargs={"config": config, "llm": llm, "prm": prm},
         desc="Running search",
         load_from_cache_file=False,
-    )
+    ) # a HuggingFace Dataset with columns: problem, completions, scores, pred, completion_tokens.
 
     dataset = score(dataset, config)
 

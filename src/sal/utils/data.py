@@ -25,9 +25,21 @@ from sal.config import Config
 
 logger = logging.getLogger()
 
+### EXTRACT BOXED ANSWER FUNCTION (FOR NUMINAMATH_COT)
+import re
+
+def extract_boxed(example):
+    match = re.search(r'\\boxed\{((?:[^{}]|(?:\{[^{}]*\}))+)\}', example.get("solution", ""))
+    return {"answer": match.group(1) if match else None}
+###
+
 
 def get_dataset(config: Config) -> Dataset:
-    dataset = load_dataset(config.dataset_name, split=config.dataset_split)
+    dataset = load_dataset(config.dataset_name, split=config.dataset_split) # train.
+
+    ###
+    dataset = dataset.map(extract_boxed)
+    ###
 
     if config.dataset_start is not None and config.dataset_end is not None:
         dataset = dataset.select(range(config.dataset_start, config.dataset_end))

@@ -30,7 +30,7 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
             {"role": "system", "content": config.system_prompt},
             {"role": "user", "content": prompt},
         ]
-        for prompt in x["problem"]
+        for prompt in x["problem"] # a list of problems.
     ]
     tokenizer = llm.get_tokenizer()
     # TODO: set the augmented template from a file
@@ -105,39 +105,47 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
         if len(c) != config.n:
             raise ValueError(f"Generated {len(c)} completions instead of {config.n}")
 
-    # scores = prm.score(x["problem"], completions) # (to-do: batch this). print statements to figure out where oom occurs.
+    scores = prm.score(x["problem"], completions) # (to-do: batch this). print statements to figure out where oom occurs.
 
-    ### Batched scoring
-    batch_size = 8
-    all_scores = []
-    print(f"Starting scoring: {len(x['problem'])} problems, batch size {batch_size}")
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / 1024**3
-        reserved = torch.cuda.memory_reserved() / 1024**3
-        print(f"[Before scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-    for i in range(0, len(x["problem"]), batch_size):
-        batch_problems = x["problem"][i:i + batch_size]
-        batch_completions = completions[i:i + batch_size]
-        try:
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / 1024**3
-                reserved = torch.cuda.memory_reserved() / 1024**3
-                print(f"[Before batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-            batch_scores = prm.score(batch_problems, batch_completions)
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / 1024**3
-                reserved = torch.cuda.memory_reserved() / 1024**3
-                print(f"[After batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-            print(f"Batch {i//batch_size + 1}: Scored {len(batch_scores)} problems.")
-        except Exception as e:
-            print(f"OOM or error during scoring batch {i//batch_size + 1}: {e}")
-            raise
-        all_scores.extend(batch_scores)
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / 1024**3
-        reserved = torch.cuda.memory_reserved() / 1024**3
-        print(f"[After scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-    scores = all_scores
+    # ### Batched scoring
+    # batch_size = 1
+    
+    # all_scores = []
+    # print(f"Starting scoring: {len(completions)} completions of batch size {batch_size}")
+    # if torch.cuda.is_available():
+    #     allocated = torch.cuda.memory_allocated() / 1024**3
+    #     reserved = torch.cuda.memory_reserved() / 1024**3
+    #     print(f"[Before scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+    # for i in range(0, len(completions), batch_size):
+    #     # batch_problems = x["problem"][i:i + batch_size]
+    #     batch_completions = completions[i:i + batch_size]
+        
+    #     try:
+    #         if torch.cuda.is_available():
+    #             allocated = torch.cuda.memory_allocated() / 1024**3
+    #             reserved = torch.cuda.memory_reserved() / 1024**3
+    #             print(f"[Before batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+            
+    #         batch_scores = prm.score(x["problem"], batch_completions)
+            
+    #         if torch.cuda.is_available():
+    #             allocated = torch.cuda.memory_allocated() / 1024**3
+    #             reserved = torch.cuda.memory_reserved() / 1024**3
+    #             print(f"[After batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+    #         print(f"Batch {i//batch_size + 1}: Scored {len(batch_scores)} problems.")
+        
+    #     except Exception as e:
+    #         print(f"OOM or error during scoring batch {i//batch_size + 1}: {e}")
+    #         raise
+        
+    #     all_scores.extend(batch_scores)
+    
+    # if torch.cuda.is_available():
+    #     allocated = torch.cuda.memory_allocated() / 1024**3
+    #     reserved = torch.cuda.memory_reserved() / 1024**3
+    #     print(f"[After scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+    
+    # scores = all_scores
 
     ###
 

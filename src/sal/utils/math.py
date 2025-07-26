@@ -115,12 +115,30 @@ def extract_completion_answers(
 
 
 def compute_naive_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
+    '''
+    Computes the naive prediction by selecting the prediction with the highest score
+    out of n predictions (this is for a single question).
+    '''
     preds = x[f"preds@{n}"]
     scores = x[f"agg_scores@{n}"]
     preds = [
         (p, s) for p, s in sorted(zip(preds, scores), key=lambda x: x[1], reverse=True)
     ]
     return {f"pred_naive@{n}": "\\boxed{" + preds[0][0] + "}"}
+
+### bootstrap code
+def compute_naive_pred_bs(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
+    '''
+    Computes the naive prediction by selecting the prediction with the highest score
+    out of n predictions (this is for a single question).
+    '''
+    preds = x[f"sampled_preds"]
+    scores = x[f"sampled_scores"]
+    preds = [
+        (p, s) for p, s in sorted(zip(preds, scores), key=lambda x: x[1], reverse=True)
+    ]
+    return {f"pred_naive@{n}": "\\boxed{" + preds[0][0] + "}"}
+###
 
 
 def compute_weighted_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
@@ -132,11 +150,26 @@ def compute_weighted_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # 
         + "}"
     }
 
+### bootstrap code
+def compute_weighted_pred_bs(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
+    preds = x[f"sampled_preds"] # preds are the sampled answers.
+    scores = x[f"sampled_scores"]
+    return {
+        f"pred_weighted@{n}": "\\boxed{"
+        + find_answer_with_largest_sum(preds, scores)
+        + "}"
+    }
+###
 
 def compute_maj_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
     preds = x[f"preds@{n}"]
     return {f"pred_maj@{n}": "\\boxed{" + find_majority_answer(preds) + "}"}
 
+### bootstrap code
+def compute_maj_pred_bs(x: Dict[str, List[Any]], n: int) -> Dict[str, str]: # JH fixed List[str] -> str.
+    preds = x[f"sampled_preds"]
+    return {f"pred_maj@{n}": "\\boxed{" + find_majority_answer(preds) + "}"}
+###
 
 def find_answer_with_largest_sum(answers: List[str], scores: List[float]) -> str:
     """
@@ -280,8 +313,8 @@ def add_indicator_columns(x, n):
     # Each pred_*@{n} is a string, but you want a list for batch processing.
     # If using batched=True, these will be lists; if not, wrap in a list.
     weighted_pred = compute_weighted_pred(x, n)[f"pred_weighted@{n}"] # string.
-    maj_pred = compute_maj_pred(x, n)[f"pred_maj@{n}"]
-    naive_pred = compute_naive_pred(x, n)[f"pred_naive@{n}"]
+    maj_pred = compute_maj_pred_bs(x, n)[f"pred_maj@{n}"]
+    naive_pred = compute_naive_pred_bs(x, n)[f"pred_naive@{n}"]
     true_answer = x["answer"] # string.
 
     weighted_ind = compute_prediction_indicator(weighted_pred, true_answer)
@@ -292,7 +325,28 @@ def add_indicator_columns(x, n):
         f"indicator_weighted@{n}": weighted_ind,
         f"indicator_maj@{n}": maj_ind,
         f"indicator_naive@{n}": naive_ind,
-    }      
+    }  
+
+
+### bootstrap code
+def add_indicator_columns_bs(x, n):
+    # Each pred_*@{n} is a string, but you want a list for batch processing.
+    # If using batched=True, these will be lists; if not, wrap in a list.
+    weighted_pred = compute_weighted_pred_bs(x, n)[f"pred_weighted@{n}"] # string.
+    maj_pred = compute_maj_pred_bs(x, n)[f"pred_maj@{n}"]
+    naive_pred = compute_naive_pred_bs(x, n)[f"pred_naive@{n}"]
+    true_answer = x["answer"] # string.
+
+    weighted_ind = compute_prediction_indicator(weighted_pred, true_answer)
+    maj_ind = compute_prediction_indicator(maj_pred, true_answer)
+    naive_ind = compute_prediction_indicator(naive_pred, true_answer)
+
+    return {
+        f"indicator_weighted@{n}": weighted_ind,
+        f"indicator_maj@{n}": maj_ind,
+        f"indicator_naive@{n}": naive_ind,
+    } 
+###    
 
 
 def compute_prediction_indicator(
@@ -310,3 +364,29 @@ def compute_prediction_indicator(
         unboxed_pred = pred
     
     return int(memoized_canonical_form(unboxed_pred) == memoized_canonical_form(true_answer))
+
+def add_correctness_list(x, n): # [T, T, F, ...]
+    preds = x[f"preds@{n}"] # list of size n.
+    true_answer = x["answer"] # string.
+
+    correctness_lst = compute_prediction_match_list(preds, true_answer)
+
+    return {
+        f"correctness@{n}": correctness_lst,
+    } 
+
+def compute_prediction_match_list(preds: list[str], true_answer: str) -> list[bool]:
+    """
+    Returns a list of booleans indicating whether each pred in preds matches the true_answer,
+    using memoized canonical form for comparison.
+    """
+    canonical_true = memoized_canonical_form(true_answer)
+    result = []
+    for pred in preds:
+        # Remove \boxed{} wrapper if present
+        if isinstance(pred, str) and pred.startswith("\\boxed{") and pred.endswith("}"):
+            unboxed_pred = pred[7:-1]
+        else:
+            unboxed_pred = pred
+        result.append(memoized_canonical_form(unboxed_pred) == canonical_true)
+    return result
