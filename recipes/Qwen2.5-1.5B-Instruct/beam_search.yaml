@@ -1,10 +1,24 @@
 # refer to src/sal/config.py for more options
 
 model_path: Qwen/Qwen2.5-1.5B-Instruct
+prm_path: Qwen/Qwen2.5-Math-PRM-7B
+output_dir: /dccstor/gma2/jhjenny9/search-and-learn/data/Qwen/Qwen2.5-1.5B-Instruct/best_of_2_numina
+dataset_name: AI-MO/NuminaMath-CoT # HuggingFaceH4/MATH-500, AI-MO/NuminaMath-CoT, math-ai/aime25
+dataset_split: "train"
 custom_chat_template: null
 filter_duplicates: true
 approach: beam_search
 n: 4
+beam_width: 4  # m in the paper
+num_iterations: 40 # Up to 40 iterations, i.e. a tree of maximum depth with 40 steps.
+lookahead: 0
 search_batch_size: 1  # DO NOT CHANGE!
 num_samples: 10       # REMOVE THIS LINE TO RUN ON THE WHOLE DATASET
 seed: 0
+# Search Related Options
+# temperature: float = 0.8
+# top_p: float = 1.0
+# prm_batch_size: int = 4
+# search_batch_size: int = 25
+# max_tokens: int = 2048
+# agg_strategy: str = "last"  # Options: "last", "min", "prod"
