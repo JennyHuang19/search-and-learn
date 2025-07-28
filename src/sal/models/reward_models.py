@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from itertools import accumulate
+import time
 
 import torch
 import torch.nn.functional as F
@@ -32,6 +33,12 @@ from sal.models.skywork_o1_prm.io_utils import (
     prepare_input,
 )
 from sal.models.skywork_o1_prm.prm_model import SkyworkPRMModel
+
+### redirecting outputs for debugging purposes
+# import sys
+# sys.stdout = open("bo2-latency.out", "w")
+# sys.stderr = open("bo2-latency.err", "w")
+###
 
 CANDIDATE_TOKENS = [648, 387]
 STEP_TAG_ID = 12902
@@ -101,11 +108,53 @@ class MathShepherd(PRM):
         ).eval()
         return model, tokenizer
 
+    # def score(
+    #     self, questions: list[str], outputs: list[list[str]]
+    # ) -> list[list[float]]:
+    #     inputs_for_prm = []
+    #     lengths = []
+    #     for question, output in zip(questions, outputs):
+    #         prompt = self.search_config.system_prompt + "\n" + question + "\n"
+    #         special_outputs = [o.replace("\n\n", " ки\n\n") for o in output]
+    #         special_outputs = [
+    #             o + " ки" if o[-2:] != "\n\n" else o for o in special_outputs
+    #         ]
+    #         inputs_for_prm.extend([f"{prompt} {o}" for o in special_outputs])
+    #         lengths.append(len(output))
+
+    #     # TODO: tokenize each batch independently so there is less padding and faster inference
+    #     output_scores = batched_math_shepherd_inference(
+    #         self.model,
+    #         self.tokenizer,
+    #         inputs_for_prm,
+    #         self.search_config.prm_batch_size,
+    #     )
+    #     cumulative_lengths = list(accumulate(lengths))
+    #     # reshape the output scores to match the input
+    #     output_scores = [
+    #         output_scores[i:j]
+    #         for i, j in zip([0] + cumulative_lengths[:-1], cumulative_lengths)
+    #     ]
+
+    #     # stripped_output_scores = [] TODO: strip out the reward for previous steps
+    #     for output_score, output in zip(output_scores, outputs):
+    #         assert len(output_score) == len(output), (
+    #             f"{len(output_score)} != {len(output)}"
+    #         )
+
+    #     return output_scores
+    
     def score(
         self, questions: list[str], outputs: list[list[str]]
     ) -> list[list[float]]:
+        import time
+        import pdb
+        pdb.set_trace()
+
         inputs_for_prm = []
         lengths = []
+        question_times = []  # List to store the time taken for each question
+
         for question, output in zip(questions, outputs):
             prompt = self.search_config.system_prompt + "\n" + question + "\n"
             special_outputs = [o.replace("\n\n", " ки\n\n") for o in output]
@@ -115,21 +164,44 @@ class MathShepherd(PRM):
             inputs_for_prm.extend([f"{prompt} {o}" for o in special_outputs])
             lengths.append(len(output))
 
-        # TODO: tokenize each batch independently so there is less padding and faster inference
-        output_scores = batched_math_shepherd_inference(
-            self.model,
-            self.tokenizer,
-            inputs_for_prm,
-            self.search_config.prm_batch_size,
-        )
+        # Start timing for scoring
+        output_scores = []
         cumulative_lengths = list(accumulate(lengths))
-        # reshape the output scores to match the input
+
+        for i, (question, output) in enumerate(zip(questions, outputs)):
+            question_start_time = time.time()  # Start timing for this question
+            pdb.set_trace()
+
+            # Process the inputs for this question
+            question_inputs = inputs_for_prm[
+                cumulative_lengths[i - 1] if i > 0 else 0 : cumulative_lengths[i]
+            ]
+            question_scores = batched_math_shepherd_inference(
+                self.model,
+                self.tokenizer,
+                question_inputs,
+                self.search_config.prm_batch_size,
+            )
+            output_scores.append(question_scores)
+
+            question_end_time = time.time()  # End timing for this question
+            question_time = question_end_time - question_start_time
+            question_times.append(question_time)
+
+            print(f"Scoring for question {i + 1} completed in {question_time:.2f} seconds.", flush=True)
+            pdb.set_trace()
+
+        # Print total time for all questions
+        total_time = sum(question_times)
+        print(f"Total scoring time for all questions: {total_time:.2f} seconds.", flush=True)
+
+        # Reshape the output scores to match the input
         output_scores = [
             output_scores[i:j]
             for i, j in zip([0] + cumulative_lengths[:-1], cumulative_lengths)
         ]
 
-        # stripped_output_scores = [] TODO: strip out the reward for previous steps
+        # Ensure the output scores match the number of outputs
         for output_score, output in zip(output_scores, outputs):
             assert len(output_score) == len(output), (
                 f"{len(output_score)} != {len(output)}"
@@ -347,9 +419,18 @@ class Qwen_2_5_Math(PRM):
     def score(
         self, questions: list[str], outputs: list[list[str]]
     ) -> list[list[float]]:
-        all_scores = []
+        import time
+        import pdb
 
-        for question, answers in zip(questions, outputs):
+        all_scores = []  # To store scores for all questions
+        question_times = []  # To store the time taken for each question
+        # pdb.set_trace()
+
+        # Iterate over each question and its corresponding outputs
+        for i, (question, answers) in enumerate(zip(questions, outputs)):
+            question_start_time = time.time()  # Start timing for this question
+            # pdb.set_trace()
+
             processed_responses = []
             for answer in answers:
                 messages = [
@@ -380,7 +461,56 @@ class Qwen_2_5_Math(PRM):
             step_rewards = self.make_step_rewards(outputs[0], token_masks)
             all_scores.append(step_rewards)
 
+            question_end_time = time.time()  # End timing for this question
+            question_time = question_end_time - question_start_time
+            question_times.append(question_time)
+
+            # Print timing for this question
+            print(f"Scoring for question {i + 1} completed in {question_time:.2f} seconds.", flush=True)
+
+        # Print total time for all questions
+        total_time = sum(question_times)
+        print(f"Total scoring time for all questions: {total_time:.2f} seconds.", flush=True)
+
         return all_scores
+
+    # def score(
+    #     self, questions: list[str], outputs: list[list[str]]
+    # ) -> list[list[float]]:
+    #     all_scores = []
+
+    #     for question, answers in zip(questions, outputs):
+    #         processed_responses = []
+    #         for answer in answers:
+    #             messages = [
+    #                 {
+    #                     "role": "system",
+    #                     "content": "Please reason step by step, and put your final answer within \\boxed{}.",
+    #                 },
+    #                 {"role": "user", "content": question},
+    #                 {
+    #                     "role": "assistant",
+    #                     "content": answer.replace("\n\n", "<extra_0>") + "<extra_0>",
+    #                 },
+    #             ]
+    #             conversation_str = self.tokenizer.apply_chat_template(
+    #                 messages, tokenize=False, add_generation_prompt=False
+    #             )
+    #             processed_responses.append(conversation_str)
+
+    #         input_ids = self.tokenizer(
+    #             processed_responses, return_tensors="pt", padding=True, truncation=True
+    #         )["input_ids"].to(self.model.device)
+
+    #         with torch.no_grad():
+    #             outputs = self.model(input_ids=input_ids)
+
+    #         step_sep_id = self.tokenizer.encode("<extra_0>")[0]
+    #         token_masks = input_ids == step_sep_id
+    #         step_rewards = self.make_step_rewards(outputs[0], token_masks)
+    #         all_scores.append(step_rewards)
+
+    #     return all_scores
 
     @staticmethod
     def make_step_rewards(logits, token_masks):

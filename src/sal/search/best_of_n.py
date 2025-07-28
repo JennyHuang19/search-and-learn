@@ -12,6 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import time
+
 
 import numpy as np
 import torch
@@ -55,11 +57,15 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
         n=1,  # Since we've already duplicated the prompt_token_ids, we only need to generate 1 completion per prompt
     )
 
-    # Process conversations in batches of 8
-    batch_size = 8
+    # Process convs in batches of 8
+    batch_size = 2 # JH: I changed this to N to measure the latency of BoN.
     all_responses = []
-    
+
+    # Start timing the entire best-of-N process
+    total_start_time = time.time()
+
     for i in range(0, len(templated_convs), batch_size):
+        batch_start_time = time.time()  # Start timing for this batch
         batch_convs = templated_convs[i:i + batch_size]
         
         # Print GPU memory usage before processing batch
@@ -68,9 +74,10 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
                 allocated = torch.cuda.memory_allocated() / 1024**3  # GB
                 reserved = torch.cuda.memory_reserved() / 1024**3    # GB
                 max_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
-                print(f"Batch {i//batch_size + 1}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB, Max: {max_memory:.2f}GB")
+                # print(f"Batch {i//batch_size + 1}: GPU Memory - Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB, Max: {max_memory:.2f}GB")
             else:
-                print(f"Batch {i//batch_size + 1}: Processing batch of size {len(batch_convs)}")
+                # print(f"Batch {i//batch_size + 1}: Processing batch of size {len(batch_convs)}")
+                pass
         except Exception as e:
             print(f"Batch {i//batch_size + 1}: Processing batch of size {len(batch_convs)} (GPU monitoring unavailable: {e})")
         
@@ -80,7 +87,11 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
             use_tqdm=False,
         )
         all_responses.extend(batch_responses)
-    
+
+        # End timing for this batch
+        batch_end_time = time.time()
+        print(f"Generation for question {i//batch_size + 1} completed in {batch_end_time - batch_start_time:.2f} seconds.")
+
     responses = all_responses
     
     if len(responses) != len(x["problem"]) * config.n:
@@ -104,50 +115,12 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
     for c in completions:
         if len(c) != config.n:
             raise ValueError(f"Generated {len(c)} completions instead of {config.n}")
-
-    scores = prm.score(x["problem"], completions) # (to-do: batch this). print statements to figure out where oom occurs.
-
-    # ### Batched scoring
-    # batch_size = 1
-    
-    # all_scores = []
-    # print(f"Starting scoring: {len(completions)} completions of batch size {batch_size}")
-    # if torch.cuda.is_available():
-    #     allocated = torch.cuda.memory_allocated() / 1024**3
-    #     reserved = torch.cuda.memory_reserved() / 1024**3
-    #     print(f"[Before scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-    # for i in range(0, len(completions), batch_size):
-    #     # batch_problems = x["problem"][i:i + batch_size]
-    #     batch_completions = completions[i:i + batch_size]
         
-    #     try:
-    #         if torch.cuda.is_available():
-    #             allocated = torch.cuda.memory_allocated() / 1024**3
-    #             reserved = torch.cuda.memory_reserved() / 1024**3
-    #             print(f"[Before batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-            
-    #         batch_scores = prm.score(x["problem"], batch_completions)
-            
-    #         if torch.cuda.is_available():
-    #             allocated = torch.cuda.memory_allocated() / 1024**3
-    #             reserved = torch.cuda.memory_reserved() / 1024**3
-    #             print(f"[After batch {i//batch_size + 1}] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-    #         print(f"Batch {i//batch_size + 1}: Scored {len(batch_scores)} problems.")
-        
-    #     except Exception as e:
-    #         print(f"OOM or error during scoring batch {i//batch_size + 1}: {e}")
-    #         raise
-        
-    #     all_scores.extend(batch_scores)
-    
-    # if torch.cuda.is_available():
-    #     allocated = torch.cuda.memory_allocated() / 1024**3
-    #     reserved = torch.cuda.memory_reserved() / 1024**3
-    #     print(f"[After scoring] GPU Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
-    
-    # scores = all_scores
-
-    ###
+    # Start timing the scoring process (time to score all questions)
+    scoring_start_time = time.time()
+    scores = prm.score(x["problem"], completions)  # (to-do: batch this). print statements to figure out where OOM occurs. is this the score for all of the questions at once?
+    scoring_end_time = time.time()
+    print(f"Scoring completed in {scoring_end_time - scoring_start_time:.2f} seconds.")
 
     agg_scores = [
         [aggregate_scores(s, config.agg_strategy) for s in score] for score in scores
@@ -160,5 +133,10 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
     x["scores"] = scores
     x["pred"] = pred
     x["completion_tokens"] = completion_tokens
+
+    # End timing the entire best-of-N process
+    total_end_time = time.time()
+    print(f"Total best-of-N process for all questions completed in {total_end_time - total_start_time:.2f} seconds.")
+
 
     return x

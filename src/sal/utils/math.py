@@ -313,8 +313,8 @@ def add_indicator_columns(x, n):
     # Each pred_*@{n} is a string, but you want a list for batch processing.
     # If using batched=True, these will be lists; if not, wrap in a list.
     weighted_pred = compute_weighted_pred(x, n)[f"pred_weighted@{n}"] # string.
-    maj_pred = compute_maj_pred_bs(x, n)[f"pred_maj@{n}"]
-    naive_pred = compute_naive_pred_bs(x, n)[f"pred_naive@{n}"]
+    maj_pred = compute_maj_pred(x, n)[f"pred_maj@{n}"]
+    naive_pred = compute_naive_pred(x, n)[f"pred_naive@{n}"]
     true_answer = x["answer"] # string.
 
     weighted_ind = compute_prediction_indicator(weighted_pred, true_answer)
