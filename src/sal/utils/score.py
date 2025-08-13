@@ -119,7 +119,7 @@ def bootstrap_completions(dataset, n_bootstrap=10, sample_size=2, random_seed=42
 
     for idx, row in enumerate(dataset):
         # Add a breakpoint to inspect the row object
-        # print(f"Processing row {idx}...")
+        print(f"Processing row {idx}...")
         # pdb.set_trace() 
 
         problem = row["problem"] # problem.
@@ -162,14 +162,14 @@ def bootstrap_completions(dataset, n_bootstrap=10, sample_size=2, random_seed=42
                 "answer": answer,
                 "bootstrap_sample_id": f"{idx}_{b}",
                 "bootstrap_sample_indices": list(sample_indices),
-                "bootstrap_completions": sampled_completions,
+                # "bootstrap_completions": sampled_completions,
                 "bootstrap_scores": sampled_scores,
-                "bs_pred_weighted@2": pred_weighted,
-                "bs_pred_naive@2": pred_naive,
-                "bs_pred_maj@2": pred_maj,
-                "bs_indicator_weighted@2": weighted_ind,
-                "bs_indicator_naive@2": naive_ind,
-                "bs_indicator_maj@2": maj_ind,
+                "bs_pred_weighted": pred_weighted,
+                "bs_pred_naive": pred_naive,
+                "bs_pred_maj": pred_maj,
+                "bs_indicator_weighted": weighted_ind,
+                "bs_indicator_naive": naive_ind,
+                "bs_indicator_maj": maj_ind,
             })
 
             # Add a breakpoint to inspect answers after adding bootstrap.

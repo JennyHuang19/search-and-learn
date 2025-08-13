@@ -50,9 +50,9 @@ def main():
         gpu_memory_utilization=config.gpu_memory_utilization,
         enable_prefix_caching=True,
         seed=config.seed,
-        tensor_parallel_size=num_gpus,
-    )
-    prm = load_prm(config)
+        tensor_parallel_size=num_gpus, # give all GPUs to the same model. this argument is about fitting a model on multiple GPUs.
+    ) # sometimes, in the presence of large models, you have to fit it on multiple GPUs, but here.
+    prm = load_prm(config) # centralized? think of it as 1 GPU. all GPUs are placed in 1 model.
 
     dataset = get_dataset(config)
     dataset = dataset.map( # completions, scores, pred, completion_tokens.
