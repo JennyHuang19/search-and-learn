@@ -57,8 +57,8 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
         n=1,  # Since we've already duplicated the prompt_token_ids, we only need to generate 1 completion per prompt
     )
 
-    # Process convs in batches of 8
-    batch_size = 2 # JH: I changed this to N to measure the latency of BoN.
+    # Process convs in batches of config.n
+    batch_size = config.n # JH: (bread) adjust depending on what the optimal usage is for 1 GPU, then for 4 GPUs.
     all_responses = []
 
     # Start timing the entire best-of-N process
@@ -90,7 +90,7 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
 
         # End timing for this batch
         batch_end_time = time.time()
-        print(f"Generation for question {i//batch_size + 1} completed in {batch_end_time - batch_start_time:.2f} seconds.")
+        print(f"Generation for question {i//config.n + 1} completed in {batch_end_time - batch_start_time:.2f} seconds.")
 
     responses = all_responses
     
@@ -120,7 +120,7 @@ def best_of_n(x, config: Config, llm: LLM, prm: PRM):
     scoring_start_time = time.time()
     scores = prm.score(x["problem"], completions)  # (to-do: batch this). print statements to figure out where OOM occurs. is this the score for all of the questions at once?
     scoring_end_time = time.time()
-    print(f"Scoring completed in {scoring_end_time - scoring_start_time:.2f} seconds.")
+    # print(f"Scoring completed in {scoring_end_time - scoring_start_time:.2f} seconds.")
 
     agg_scores = [
         [aggregate_scores(s, config.agg_strategy) for s in score] for score in scores

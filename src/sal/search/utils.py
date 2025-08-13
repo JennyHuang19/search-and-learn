@@ -15,6 +15,7 @@
 import copy
 import logging
 from dataclasses import dataclass
+import pdb
 
 import numpy as np
 from vllm import LLM, SamplingParams
@@ -75,7 +76,90 @@ class GenResult:
     first_step_stop_reason: str
     lookahead_text: str
     stop_reason: str | None
+    completion_tokens: int = 0 # JH: added to track the number of tokens generated in this step
 
+
+# def generate_k_steps(
+#     templated_convs,
+#     lookahead_steps: int,
+#     llm: LLM,
+#     sampling_params: SamplingParams,
+#     beam_width: int,
+# ) -> list[Beam]:
+#     gen_results = []
+#     for i, text in enumerate(templated_convs):
+#         for j in range(beam_width):
+#             gen_result = GenResult(
+#                 index=i,
+#                 initial_prompt=text,
+#                 first_step_text="",
+#                 lookahead_text="",
+#                 stop_reason=None,
+#                 first_step_stop_reason=None,
+#             )
+#             gen_results.append(gen_result)
+
+#     gen_sampling_params = copy.deepcopy(sampling_params)
+
+#     for i in range(lookahead_steps + 1):
+#         if i == 1:
+#             gen_sampling_params.temperature = 0.0  # greedy for the rest of the steps
+#         # get all generations that did not finish with eos
+#         current_gen = [
+#             gen_results[i]
+#             for i in range(len(gen_results))
+#             if gen_results[i].stop_reason != "EOS"
+#         ]
+#         gen_prompts = [
+#             gen_result.initial_prompt + gen_result.lookahead_text
+#             for gen_result in current_gen
+#         ]
+#         llm_outputs = llm.generate(gen_prompts, gen_sampling_params, use_tqdm=False)
+#         for gen_result, output in zip(current_gen, llm_outputs):
+#             gen_text = output.outputs[0].text
+#             if i == 0:
+#                 gen_result.first_step_text = gen_text
+#                 gen_result.first_step_stop_reason = output.outputs[0].stop_reason
+#                 if gen_result.first_step_stop_reason is None:
+#                     gen_result.first_step_stop_reason = "EOS"
+
+#             gen_result.lookahead_text = gen_result.lookahead_text + gen_text
+#             gen_result.stop_reason = output.outputs[0].stop_reason
+#             if gen_result.stop_reason is None:
+#                 gen_result.stop_reason = "EOS"
+
+#     outputs: list[Beam] = []
+
+#     counter = 0
+#     for i, text in enumerate(templated_convs):
+#         next_texts = []
+#         stop_reasons = []
+#         lookahead_texts = []
+#         for j in range(beam_width):
+#             gen_result = gen_results[counter]
+#             next_texts.append(gen_result.first_step_text)
+#             lookahead_texts.append(gen_result.lookahead_text)
+#             stop_reasons.append(gen_result.first_step_stop_reason)
+#             counter += 1
+
+#         beam_result = Beam(
+#             prompt=text,
+#             index=i,
+#             current_text="",
+#             next_texts=next_texts,
+#             lookahead_texts=lookahead_texts,
+#             stop_reasons=stop_reasons,
+#             best_scores=[0.0],
+#             all_scores=[],
+#             previous_text=None,
+#             pruned=False,
+#             history=[],
+#         )
+#         outputs.append(beam_result)
+
+#     return outputs
+
+NUM_TOKENS = 0  # JH: Global variable to track the total number of tokens generated
 
 def generate_k_steps(
     templated_convs,
@@ -84,6 +168,8 @@ def generate_k_steps(
     sampling_params: SamplingParams,
     beam_width: int,
 ) -> list[Beam]:
+    global NUM_TOKENS  # JH: Declare the global variable to modify it within the function
+
     gen_results = []
     for i, text in enumerate(templated_convs):
         for j in range(beam_width):
@@ -94,27 +180,44 @@ def generate_k_steps(
                 lookahead_text="",
                 stop_reason=None,
                 first_step_stop_reason=None,
+                completion_tokens=0,  # <-- JH: initialize completion token counter
             )
             gen_results.append(gen_result)
 
     gen_sampling_params = copy.deepcopy(sampling_params)
+    tokenizer = llm.get_tokenizer()  # <-- JH: tokenizer for token counting
 
     for i in range(lookahead_steps + 1):
         if i == 1:
             gen_sampling_params.temperature = 0.0  # greedy for the rest of the steps
+
         # get all generations that did not finish with eos
         current_gen = [
             gen_results[i]
             for i in range(len(gen_results))
             if gen_results[i].stop_reason != "EOS"
         ]
-        gen_prompts = [
+        gen_prompts = [ # size 4.
             gen_result.initial_prompt + gen_result.lookahead_text
             for gen_result in current_gen
         ]
         llm_outputs = llm.generate(gen_prompts, gen_sampling_params, use_tqdm=False)
+        NUM_TOKENS += sum([len(k.outputs[0].token_ids) for k in llm_outputs])
+        
+        # pdb.set_trace()  # <-- JH: Debugging point to inspect llm_outputs
+        
+
+        curr_step_tokens = []
         for gen_result, output in zip(current_gen, llm_outputs):
             gen_text = output.outputs[0].text
+
+            # <-- JH: count the number of generated tokens for each beam.
+            gen_tokens = tokenizer.encode(gen_text, add_special_tokens=False)
+            gen_result.completion_tokens += len(gen_tokens)
+            # print("Num of Generated tokens in this node:", len(gen_tokens)) # total nodes should be n x beam_width.
+            curr_step_tokens.append(len(gen_tokens))
+            # create GLOBAL VARIABLE to track the number of tokens generated so far.
+
             if i == 0:
                 gen_result.first_step_text = gen_text
                 gen_result.first_step_stop_reason = output.outputs[0].stop_reason
@@ -125,6 +228,9 @@ def generate_k_steps(
             gen_result.stop_reason = output.outputs[0].stop_reason
             if gen_result.stop_reason is None:
                 gen_result.stop_reason = "EOS"
+        
+        # JH: Print the total number of tokens generated in the current step
+        print(f"Number of tokens generated in current step: {sum(curr_step_tokens)}")
 
     outputs: list[Beam] = []
 
@@ -133,11 +239,14 @@ def generate_k_steps(
         next_texts = []
         stop_reasons = []
         lookahead_texts = []
+        completion_tokens = 0  # <-- JH: track total completion tokens per beam
+
         for j in range(beam_width):
             gen_result = gen_results[counter]
             next_texts.append(gen_result.first_step_text)
             lookahead_texts.append(gen_result.lookahead_text)
             stop_reasons.append(gen_result.first_step_stop_reason)
+            completion_tokens += gen_result.completion_tokens  # <-- JH
             counter += 1
 
         beam_result = Beam(
@@ -152,7 +261,10 @@ def generate_k_steps(
             previous_text=None,
             pruned=False,
             history=[],
+            completion_tokens=completion_tokens,  # <-- JH
         )
         outputs.append(beam_result)
 
+    print(f"Total number of tokens generated thus far: {NUM_TOKENS}")  # <-- JH: Print the total number of tokens generated
+    
     return outputs

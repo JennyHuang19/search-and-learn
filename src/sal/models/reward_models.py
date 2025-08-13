@@ -188,12 +188,16 @@ class MathShepherd(PRM):
             question_time = question_end_time - question_start_time
             question_times.append(question_time)
 
-            print(f"Scoring for question {i + 1} completed in {question_time:.2f} seconds.", flush=True)
-            pdb.set_trace()
+            # print(f"Scoring for question {i + 1} completed in {question_time:.2f} seconds.", flush=True)
+            # pdb.set_trace()
 
         # Print total time for all questions
         total_time = sum(question_times)
-        print(f"Total scoring time for all questions: {total_time:.2f} seconds.", flush=True)
+
+        import pdb
+        pdb.set_trace()
+
+        # print(f"Total scoring time for all questions: {total_time:.2f} seconds.", flush=True)
 
         # Reshape the output scores to match the input
         output_scores = [
@@ -465,12 +469,15 @@ class Qwen_2_5_Math(PRM):
             question_time = question_end_time - question_start_time
             question_times.append(question_time)
 
-            # Print timing for this question
-            print(f"Scoring for question {i + 1} completed in {question_time:.2f} seconds.", flush=True)
 
+            # Print timing for this question
+            # print(f"Scoring for question {i + 1} completed in {question_time:.2f} seconds.", flush=True)
+            
+            # pdb.set_trace()
+        
         # Print total time for all questions
         total_time = sum(question_times)
-        print(f"Total scoring time for all questions: {total_time:.2f} seconds.", flush=True)
+        # print(f"Total scoring time for all questions: {total_time:.2f} seconds.", flush=True)
 
         return all_scores
 

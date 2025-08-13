@@ -28,6 +28,8 @@ from .utils import Beam, build_conv, generate_k_steps, last
 logger = logging.getLogger()
 from sal.utils.score import aggregate_scores
 
+import time
+import pdb
 
 def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[Beam]:
     sampling_params = SamplingParams(
@@ -61,6 +63,10 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[B
             )
 
     completed_beams: list[Beam] = []
+    
+    # Start timing the entire beam search process
+    total_start_time = time.time()
+
 
     for i in tqdm(range(config.num_iterations), desc="Beam search iterations"):
         if i == 0:
@@ -110,9 +116,11 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[B
         )
         lookahead = 0 if i == config.num_iterations - 1 else config.lookahead
         gen_results = generate_k_steps(
-            templated_convs, lookahead, llm, sampling_params, 1
-        )
-
+            templated_convs, lookahead, llm, sampling_params, 1 #  config.beam_width
+        ) # JH: These outputs are used to update the state of each beam and determine whether the beam is completed or should continue to the next iteration.
+        
+        # pdb.set_trace()
+        
         prompts, completions = [], []
         for beam, gen_result in zip(active_beams, gen_results, strict=True):
             beam.next_texts = gen_result.next_texts
@@ -193,7 +201,13 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[B
             copy.deepcopy(b) for b in (completed_beams * repeats)[: config.n]
         ]
         completed_beams = extended_completed_beams
+    
+    # JH: Log the total time taken for the beam search
+    total_end_time = time.time()
 
+    # pdb.set_trace()
+    print(f"Total beam search time: {total_end_time - total_start_time:.2f} seconds.")
+    
     return completed_beams
 
 
