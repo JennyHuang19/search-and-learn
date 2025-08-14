@@ -12,11 +12,15 @@
 ## I. Run Inference-Scaling Methods.
 This step generates the completions, scores, answers, and correctness-indicators.
 
-a. specify the inference-scaling method in a config file.
+- a. **specify the inference-scaling method in a config file.**
+```bash
 export CONFIG=recipes/Llama-3.2-1B-Instruct/best_of_n.yaml
-b. run this command.
+
+- b. **run this command.**
+```bash
 python scripts/test_time_compute.py $CONFIG
-c. (Optional) I’ve found it useful to write scripts that configure and submit multiple jobs at once. This approach is much faster than manually repeating the steps above, and it’s especially useful when submitting smaller batches of queries. see submit_beam_chunks.py for an example of batching the beam search submissions.
+
+- c. (Optional) I’ve found it useful to write scripts that configure and submit multiple jobs at once. This approach is much faster than manually repeating the steps above, and it’s especially useful when submitting smaller batches of queries. see submit_beam_chunks.py for an example of batching the beam search submissions.
 
 ## II. Compile Training Data.
 This step takes the data (*_completions.jsonl) from step I, creates soft labels, and joins the datasets together.
