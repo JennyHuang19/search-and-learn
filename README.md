@@ -7,7 +7,69 @@
       📃 <a href="https://huggingface.co/spaces/HuggingFaceH4/blogpost-scaling-test-time-compute" target="_blank">Blog Post</a>
 </p>
 
-# Search and Learn
+# Adaptive Routing Pipeline
+
+## I. Run Inference-Scaling Methods.
+This step generates the completions, scores, answers, and correctness-indicators.
+
+- a. **specify the inference-scaling method in a config file.**
+```bash
+export CONFIG=recipes/Llama-3.2-1B-Instruct/best_of_n.yaml
+```
+
+- b. **run this command.**
+```bash
+python scripts/test_time_compute.py $CONFIG
+```
+
+- c. [Optional] I find it useful to write scripts that configure and submit multiple jobs at once. This approach is much faster than manually repeating the steps above, and it’s especially useful when submitting smaller batches of queries. see submit_beam_chunks.py for an example of batching the beam search submissions.
+
+## II. Compile Training Data.
+This step takes the data (*_completions.jsonl) from step I, creates soft labels, and joins the datasets together.
+
+**Example usage:**
+
+- a. **process beam completions.**
+  
+```bash
+python scripts/data_processing/create_df_beam.py \
+    --input_files /path/to/your/beam_search_completions.jsonl
+```
+
+- b. **process parallel-method completions.**
+
+```bash
+python scripts/data_processing/create_df_parallel.py \
+    --input_files \
+        /path/to/best_of_n_completions.jsonl \
+        /path/to/another_completions.jsonl \
+```
+
+- c. **combine processed completions into one dataframe.**
+
+```bash
+python scripts/data_processing/create_training_data.py \
+    --input_dir data/sl \
+    --output_file data/final_training_dataset.csv
+```
+
+## III. Train MLP.
+This step trains the model and runs inference.
+
+**Example Run:**  
+
+```bash
+python scripts/training/train_mlp.py     --train-csv data/df_train_math500.csv     --val-csv data/df_test_math500.csv   -pca-components 32  --model-type ‘bert’     --batch-size 64     --learning-rate 1e-4     --num-epochs 1     --hidden-dims 32 16     --pooling ‘cls’     --output-dir training-res/numinaMath/math500-hidden-dim-200
+```
+
+## IV. Route using a Test Set.
+This step currently lives in python notebooks, several variations of which can be found in the scripts/routers directory.
+
+*(This step can be done locally)*.
+
+------
+
+## Search and Learn
 
 Recipes to enhance LLM capabilities by scaling inference-time compute. Name inspired by Rich Sutton's [Bitter Lesson](https://www.cs.utexas.edu/~eunsol/courses/data/bitter_lesson.pdf):
 
