@@ -3,9 +3,10 @@
 Training script for BERT + MLP model that:
 1. Takes question strings and numerical features as input
 2. Passes questions through BERT to get embeddings (with backprop)
-3. Concatenates BERT embeddings with numerical features
-4. Passes combined features through MLP classifier
-5. Uses step-by-step loss tracking and validation every 100 steps
+3. Optionally applies PCA dimension reduction to BERT embeddings
+4. Concatenates BERT embeddings with numerical features
+5. Passes combined features through MLP classifier
+6. Uses step-by-step loss tracking and validation every 100 steps
 """
 
 import torch
@@ -19,7 +20,9 @@ import argparse
 import json
 import os
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
+
 
 
 class BERTMLPDataset(Dataset):
@@ -58,14 +61,23 @@ class BERTMLPDataset(Dataset):
 
 
 class BERTMLPModel(nn.Module):
-    """BERT + MLP model that allows backprop through BERT"""
+    """BERT + MLP model that allows backprop through BERT with optional PCA reduction"""
     
-    def __init__(self, bert_model_name, numerical_feature_dim, hidden_dims, freeze_bert=False): 
+    def __init__(self, bert_model_name, numerical_feature_dim, hidden_dims, freeze_bert=False, pca_components=None): 
         super(BERTMLPModel, self).__init__()
         
         # Load BERT model
         self.bert = AutoModel.from_pretrained(bert_model_name)
         self.bert_dim = self.bert.config.hidden_size
+        
+        # PCA configuration
+        self.pca_components = pca_components
+        self.pca = None
+        if pca_components is not None:
+            self.pca = PCA(n_components=pca_components, svd_solver="randomized")
+            self.embedding_dim = pca_components
+        else:
+            self.embedding_dim = self.bert_dim
 
         
         # Freeze BERT if specified
@@ -75,7 +87,7 @@ class BERTMLPModel(nn.Module):
         
         # Build MLP dynamically based on hidden_dims
         layers = []
-        input_dim = self.bert_dim + numerical_feature_dim
+        input_dim = self.embedding_dim + numerical_feature_dim
         
         for hidden_dim in hidden_dims:
             layers.extend([
@@ -90,13 +102,27 @@ class BERTMLPModel(nn.Module):
         layers.append(nn.Sigmoid())
         
         self.mlp = nn.Sequential(*layers)
-        
+    
+    def fit_pca(self, bert_embeddings):
+        """Fit PCA on BERT embeddings"""
+        if self.pca_components is not None:
+            print(f"Fitting PCA with {self.pca_components} components on {bert_embeddings.shape[0]} samples")
+            self.pca.fit(bert_embeddings.detach().cpu().numpy())
+            print(f"PCA explained variance ratio: {self.pca.explained_variance_ratio_.sum():.4f}")
+    
     def forward(self, input_ids, attention_mask, numerical_features):
         # Forward pass through BERT (with gradients if not frozen)
         bert_outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         
         # Get CLS token embedding (first token)
         cls_embedding = bert_outputs.last_hidden_state[:, 0, :]  # Shape: [batch_size, bert_dim]
+        
+        # Apply PCA reduction if configured
+        if self.pca is not None and self.pca_components is not None:
+            # Convert to numpy for PCA, then back to tensor
+            cls_embedding_np = cls_embedding.detach().cpu().numpy()
+            cls_embedding_reduced = self.pca.transform(cls_embedding_np)
+            cls_embedding = torch.tensor(cls_embedding_reduced, dtype=torch.float32, device=cls_embedding.device)
         
         # Concatenate BERT embeddings with numerical features
         combined_features = torch.cat([cls_embedding, numerical_features], dim=1)
@@ -116,6 +142,33 @@ def load_data(csv_path, question_col, numerical_cols, label_col):
     labels = df[label_col].values
     
     return questions, numerical_features, labels
+
+
+def collect_bert_embeddings(model, data_loader, device):
+    """Collect BERT embeddings from data for PCA fitting"""
+    model.eval()
+    embeddings = []
+    
+    print("Collecting BERT embeddings for PCA fitting...")
+    with torch.no_grad():
+        for i, batch in enumerate(data_loader):
+            if i % 50 == 0:
+                print(f"Processing batch {i+1}/{len(data_loader)}")
+            
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            
+            # Get BERT outputs
+            bert_outputs = model.bert(input_ids=input_ids, attention_mask=attention_mask)
+            cls_embedding = bert_outputs.last_hidden_state[:, 0, :]  # CLS token
+            
+            embeddings.append(cls_embedding.cpu())
+    
+    # Concatenate all embeddings
+    all_embeddings = torch.cat(embeddings, dim=0)
+    print(f"Collected {all_embeddings.shape[0]} embeddings with dimension {all_embeddings.shape[1]}")
+    
+    return all_embeddings
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, 
@@ -158,7 +211,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             step_train_loss.append(loss.item())
             
             # Validation every 10 steps
-            if (i + 1) % 200 == 0:
+            if (i + 1) % 100 == 0:
                 model.eval()
                 val_loss_step = []
                 
@@ -349,6 +402,7 @@ def main():
     parser.add_argument('--bert-model', default='/u/jhjenny9/.cache/huggingface/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594', help='BERT model name')
     parser.add_argument('--hidden-dims', nargs='+', type=int, default=[16, 4], help='Hidden layer dimensions for MLP (e.g., 16 4 for two hidden layers)')
     parser.add_argument('--freeze-bert', action='store_true', help='Freeze BERT parameters')
+    parser.add_argument('--pca-components', type=int, default=None, help='Number of PCA components for BERT embeddings (default: None, no PCA)')
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size')
     parser.add_argument('--num-epochs', type=int, default=2, help='Number of training epochs')
     parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate')
@@ -403,10 +457,10 @@ def main():
     print(f'Numerical feature dimension: {len(args.numerical_cols)}')
     print(f'Batch size: {args.batch_size}')
     print(f'Steps per epoch: {len(train_loader)}')
-    print(f'Validation every 100 steps')
+    print(f'Validation every 200 steps')
     
     # Create model
-    model = BERTMLPModel(args.bert_model, len(args.numerical_cols), args.hidden_dims, args.freeze_bert)
+    model = BERTMLPModel(args.bert_model, len(args.numerical_cols), args.hidden_dims, args.freeze_bert, args.pca_components)
     model.to(device)
     
     print(f'Model created with {sum(p.numel() for p in model.parameters()):,} parameters')
@@ -414,6 +468,18 @@ def main():
         print('BERT parameters are frozen')
     else:
         print('BERT parameters are trainable')
+    
+    # Fit PCA if specified
+    if args.pca_components is not None:
+        print(f'\n=== Fitting PCA with {args.pca_components} components ===')
+        # Collect BERT embeddings from training data
+        bert_embeddings = collect_bert_embeddings(model, train_loader, device)
+        # Fit PCA on the collected embeddings
+        model.fit_pca(bert_embeddings)
+        print(f'BERT embeddings reduced from {bert_embeddings.shape[1]} to {args.pca_components} dimensions')
+    else:
+        print('\n=== No PCA reduction applied ===')
+        print(f'Using full BERT embedding dimension: {model.bert_dim}')
     
     # Save BERT last layer weights BEFORE training
     print('\n=== BERT Last Layer Weights BEFORE Training ===')
@@ -451,7 +517,12 @@ def main():
     training_history["BCE_loss_lower_bound"] = BCE_loss_lower_bound
     training_history["bert_weights_before"] = before_weights_path
     training_history["bert_weights_after"] = after_weights_path
+    if args.pca_components is not None:
+        training_history["pca_components"] = args.pca_components
+        training_history["pca_explained_variance"] = float(model.pca.explained_variance_ratio_.sum()) if model.pca else None
     print(f"BCE loss lower bound: {BCE_loss_lower_bound}")
+    if args.pca_components is not None:
+        print(f"PCA explained variance ratio: {training_history['pca_explained_variance']:.4f}")
     
     # Plot training curves
     plot_path = os.path.join(args.output_dir, 'training_curves.png')
@@ -464,6 +535,9 @@ def main():
     
     print(f'Training completed!')
     print(f'Best validation loss: {training_history["best_val_loss"]:.4f}')
+    if args.pca_components is not None:
+        print(f'PCA reduction: {model.bert_dim} → {args.pca_components} dimensions')
+        print(f'PCA explained variance: {training_history["pca_explained_variance"]:.4f}')
     print(f'Model saved to: {model_save_path}')
     print(f'Training curves saved to: {plot_path}')
     print(f'Training history saved to: {history_path}')

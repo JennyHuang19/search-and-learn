@@ -78,7 +78,7 @@ class TransformerMLPDataset(Dataset):
 class TransformerMLPModel(nn.Module):
     """Transformer + MLP model that allows backprop through BERT/Qwen with optional PCA reduction"""
     
-    def __init__(self, model_name, model_type, numerical_feature_dim, hidden_dims, freeze_transformer=False, pca_components=None): 
+    def __init__(self, model_name, model_type, pooling_method, numerical_feature_dim, hidden_dims, freeze_transformer=False, pca_components=None): 
         super(TransformerMLPModel, self).__init__()
         
         # Load transformer model
@@ -87,17 +87,17 @@ class TransformerMLPModel(nn.Module):
             self.transformer = AutoModel.from_pretrained(model_name)
         elif self.model_type == "qwen":
             self.transformer = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+        elif self.model_type == "qwen-prm":
+            self.transformer = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+        elif self.model_type == "llama-prm":
+            self.transformer = AutoModel.from_pretrained(model_name, trust_remote_code=True)
         else:
-            raise ValueError(f"Unsupported model type: {self.model_type}. Use 'bert' or 'qwen'")
+            raise ValueError(f"Unsupported model type: {self.model_type}. Use 'bert' or 'qwen' or 'roberta' or 'qwen-prm' or 'llama-prm'")
         
         # Get embedding dimension based on model type
-        if model_type == "bert":
-            self.embedding_dim = self.transformer.config.hidden_size
-        elif model_type == "qwen":
-            self.embedding_dim = self.transformer.config.hidden_size
-        else:
-            raise ValueError(f"Unsupported model type: {model_type}. Use 'bert' or 'qwen'")
-        
+        self.embedding_dim = self.transformer.config.hidden_size
+        # Pooling method configuration
+        self.pooling_method = pooling_method
         # PCA configuration
         self.pca_components = pca_components
         self.pca = None
@@ -142,7 +142,7 @@ class TransformerMLPModel(nn.Module):
         # Forward pass through transformer (with gradients if not frozen)
         if self.model_type == "bert":
             transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-        elif self.model_type == "qwen":
+        else:
             transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True, return_dict=True)
         
         # Get embeddings with configurable pooling
@@ -200,10 +200,8 @@ def collect_transformer_embeddings(model, data_loader, device, pooling_method):
             # Get transformer outputs
             if model.model_type == "bert":
                 transformer_outputs = model.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            elif model.model_type == "qwen":
-                transformer_outputs = model.transformer(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True, return_dict=True)
             else:
-                raise ValueError(f"Unsupported model type: {model.model_type}. Use 'bert' or 'qwen'")
+                transformer_outputs = model.transformer(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True, return_dict=True)
             
             # cls_embedding = transformer_outputs.last_hidden_state[:, 0, :]  # CLS token
             # Get embeddings with configurable pooling
@@ -426,7 +424,20 @@ def plot_soft_label_calibration(model, val_loader, device, output_dir):
 
 def save_transformer_last_layer_weights(model, output_dir, stage="before"):
     """Save only the mean and std of transformer's last layer weights"""
-    transformer_layers = list(model.transformer.encoder.layer)
+    # Handle different model architectures
+    if hasattr(model, 'transformer') and hasattr(model.transformer, 'encoder'):
+        # BERT/RoBERTa style
+        transformer_layers = list(model.transformer.encoder.layer)
+    elif hasattr(model, 'transformer') and hasattr(model.transformer, 'layers'):
+        # Qwen2/LLaMA style
+        transformer_layers = list(model.transformer.layers)
+    elif hasattr(model, 'model') and hasattr(model.model, 'layers'):
+        # Some models wrap in .model
+        transformer_layers = list(model.model.layers)
+    else:
+        print(f'Warning: Could not find transformer layers for {stage} stage')
+        return None
+    
     if transformer_layers:
         last_layer = transformer_layers[-1]
         stats = {}
@@ -443,7 +454,7 @@ def save_transformer_last_layer_weights(model, output_dir, stage="before"):
             json.dump(stats, f, indent=2)
         print(f'Transformer last layer stats ({stage}) saved to: {stats_path}')
         return stats_path
-    else:
+    else: 
         print(f'Warning: Could not find transformer layers to save stats for {stage} stage')
         return None
 
@@ -453,9 +464,9 @@ def main():
     parser.add_argument('--train-csv', required=True, help='Path to training CSV file')
     parser.add_argument('--val-csv', required=True, help='Path to validation CSV file')
     parser.add_argument('--question-col', default='question', help='Column name for questions')
-    parser.add_argument('--numerical-cols', nargs='+', default=['N', 'question_length', 'method_beam_search', 'method_majority', 'method_naive', 'method_weighted'], help='Column names for numerical features')
+    parser.add_argument('--numerical-cols', nargs='+', default=['N', 'question_length', 'method_beam_search', 'method_maj', 'method_naive', 'method_weighted'], help='Column names for numerical features')
     parser.add_argument('--label-col', default='sl', help='Column name for labels')
-    parser.add_argument('--model-type', choices=['bert', 'qwen'], default='bert', help='Type of transformer model to use (bert or qwen)')
+    parser.add_argument('--model-type', choices=['bert', 'qwen', 'roberta', 'qwen-prm', 'llama-prm'], default='bert', help='Type of transformer model to use (bert or qwen)')
     parser.add_argument('--model-path', default=None, help='Path to transformer model (local directory or HF model id). If not specified, will use default paths for the selected model type.')
     parser.add_argument('--hidden-dims', nargs='+', type=int, default=[16, 4], help='Hidden layer dimensions for MLP (e.g., 16 4 for two hidden layers)')
     parser.add_argument('--freeze-transformer', action='store_true', help='Freeze transformer parameters')
@@ -475,14 +486,17 @@ def main():
     if args.model_path is None:
         if args.model_type == 'bert':
             args.model_path = '/u/jhjenny9/.cache/huggingface/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594'
+        elif args.model_type == 'roberta':
+            args.model_path = 'FacebookAI/roberta-base'
         elif args.model_type == 'qwen':
             args.model_path = 'Qwen/Qwen2.5-1.5B-Instruct'
+        elif args.model_type == 'qwen-prm':
+            args.model_path = 'Qwen/Qwen2.5-Math-PRM-7B'
+        elif args.model_type == 'llama-prm':
+            args.model_path = 'RLHFlow/Llama3.1-8B-PRM-Deepseek-Data'
         print(f'Using default {args.model_type} model path: {args.model_path}')
     
-    # Validate model type and path
-    if args.model_type not in ['bert', 'qwen']:
-        raise ValueError(f"Unsupported model type: {args.model_type}. Use 'bert' or 'qwen'")
-    
+
     print(f'Selected model type: {args.model_type}')
     print(f'Model path: {args.model_path}')
     
@@ -519,11 +533,20 @@ def main():
     if args.model_type == "bert":
         print(f'Loading tokenizer for {args.model_path}...')
         tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    elif args.model_type == "roberta":
+        print(f'Loading tokenizer for {args.model_path}...')
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
     elif args.model_type == "qwen":
         print(f'Loading tokenizer for {args.model_path}...')
         tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
+    elif args.model_type == "qwen-prm":
+        print(f'Loading tokenizer for {args.model_path}...')
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
+    elif args.model_type == "llama-prm":
+        print(f'Loading tokenizer for {args.model_path}...')
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     else:
-        raise ValueError(f"Unsupported model type: {args.model_type}. Use 'bert' or 'qwen'")
+        raise ValueError(f"Unsupported model type: {args.model_type}. Use 'bert' or 'qwen' or 'roberta' or 'qwen-prm' or 'llama-prm'")
     
     # Create datasets
     train_dataset = TransformerMLPDataset(train_questions, train_numerical, train_labels, tokenizer, args.max_length)
@@ -542,7 +565,7 @@ def main():
     print(f'Validation every 200 steps')
     
     # Create model
-    model = TransformerMLPModel(args.model_path, args.model_type, len(args.numerical_cols), args.hidden_dims, args.freeze_transformer, args.pca_components)
+    model = TransformerMLPModel(args.model_path, args.model_type, args.pooling, len(args.numerical_cols), args.hidden_dims, args.freeze_transformer, args.pca_components)
     model.to(device)
     
     print(f'Model created with {sum(p.numel() for p in model.parameters()):,} parameters')
@@ -554,14 +577,24 @@ def main():
     # Fit PCA if specified
     if args.pca_components is not None:
         print(f'\n=== Fitting PCA with {args.pca_components} components ===')
-        # Collect transformer embeddings from training data
-        transformer_embeddings = collect_transformer_embeddings(model, train_loader, device, args.pooling)
+
+        # Cache embeddings to avoid recomputing
+        embedding_cache_path = os.path.join(args.output_dir, 'transformer_embeddings.npy')
+        if os.path.exists(embedding_cache_path):
+            print("Loading cached embeddings...")
+            transformer_embeddings = np.load(embedding_cache_path)
+        else:
+            print("Computing embeddings...")
+            transformer_embeddings = collect_transformer_embeddings(model, train_loader, device, args.pooling)
+            np.save(embedding_cache_path, transformer_embeddings)
+        
         # Fit PCA on the collected embeddings
         model.fit_pca(transformer_embeddings)
         print(f'Transformer embeddings reduced from {transformer_embeddings.shape[1]} to {args.pca_components} dimensions')
     else:
         print('\n=== No PCA reduction applied ===')
         print(f'Using full transformer embedding dimension: {model.embedding_dim}')
+
     
     # Save transformer last layer weights BEFORE training
     print('\n=== Transformer Last Layer Weights BEFORE Training ===')
