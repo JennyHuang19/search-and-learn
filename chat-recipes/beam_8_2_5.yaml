@@ -1,0 +1,36 @@
+# Beam search configuration for chat generation
+# 8 beams, beam width 2, 5 iterations
+
+# Generator model.input_csv
+model_path: Qwen/Qwen2.5-1.5B-Instruct
+prm_path: UW-Madison-Lee-Lab/VersaPRM
+
+# Beam search parameters
+n: 8                    # Number of beams to maintain
+num_iterations: 5       # Number of beam search iterations
+lookahead: 0            # Kept the same as in math.
+beam_width: 2           # Beam width for pruning (how many beams to keep per group)
+
+# Generation parameters
+temperature: 0.8       # Generation temperature (higher = more diverse)
+# max_tokens: int = 2048      # Maximum tokens per completion, keep same as math (config.py)
+top_p: 1.0            # Top-p sampling parameter
+# top_k: null           # Top-k sampling (null = disabled)
+
+# Search strategy
+filter_duplicates: true # Filter duplicate completions during search
+sort_completed: true   # Sort completed beams by score before returning
+# agg_strategy: str = "last"   # Score aggregation strategy, same as math.
+
+
+# Chat-specific settings
+system_prompt: "You are a helpful AI chat assistant. Provide clear, helpful responses to user questions."
+custom_chat_template: null  # Use model's default chat template
+
+# Output settings
+output_dir: ./chat-results-beam-part-2/beam_8_2_5
+
+
+# Processing settings
+dataset_start: 0
+dataset_end: 5000  # Process first 2 prompts for testing
