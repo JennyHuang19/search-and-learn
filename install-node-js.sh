@@ -13,3 +13,6 @@ node -v # Should print "v22.20.0".
 
 # Verify npm version:
 npm -v # Should print "10.9.3".
+
+# Install Claude Code.
+npm install -g @anthropic-ai/claude-code
