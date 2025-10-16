@@ -69,11 +69,17 @@ def classify_question(q: str) -> str:
         return "Other"
 
 def add_question_type_column(df_train: pd.DataFrame) -> pd.DataFrame:
-    if "question" not in df_train.columns:
-        raise ValueError("DataFrame must contain a 'question' column.")
+    # Check for either 'question' or 'prompt' column
+    if "question" in df_train.columns:
+        col_name = "question"
+    elif "prompt" in df_train.columns:
+        col_name = "prompt"
+    else:
+        raise ValueError("DataFrame must contain either a 'question' or 'prompt' column.")
+
     types = []
     total = len(df_train)
-    for idx, q in enumerate(df_train["question"], 1):
+    for idx, q in enumerate(df_train[col_name], 1):
         t = classify_question(q)
         types.append(t)
         print(f"Classified question {idx}/{total}: {t}")

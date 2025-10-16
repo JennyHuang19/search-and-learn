@@ -1,9 +1,13 @@
-# Hugging Face dataset
-dataset_repo: lmarena-ai/arena-human-preference-55k
-split: train
+# Local CSV dataset (use this OR dataset_repo, not both)
+csv_path: ./writing/writing.csv
+
+# Hugging Face dataset (alternative to csv_path)
+# dataset_repo: lmarena-ai/arena-human-preference-55k
+# split: train
+
 prompt_column: prompt
-begin_row: 500
-end_row: 5000
+# begin_row: 0  # optional, defaults to 0
+# end_row: 100  # optional, defaults to all rows
 
 # models
 generator_model: Qwen/Qwen2.5-1.5B-Instruct
@@ -14,4 +18,4 @@ n: 4
 max_tokens: 2048
 
 # output
-out_path: ./chat-results-9-11/gen_bo4.jsonl
+out_path: ./writing/gen_bo4.jsonl

@@ -3,7 +3,8 @@ import argparse, os, time, json
 from typing import List
 
 import numpy as np
-from datasets import load_dataset
+import pandas as pd
+from datasets import load_dataset, Dataset
 from vllm import LLM, SamplingParams
 import yaml
 
@@ -24,23 +25,37 @@ def main():
     cfg = load_cfg(args.config)
 
     # minimal config fields
-    repo_id       = cfg["dataset_repo"]                # HF dataset repo id
+    csv_path      = cfg.get("csv_path")                # local CSV path (optional)
+    repo_id       = cfg.get("dataset_repo")            # HF dataset repo id (optional)
     split         = cfg.get("split", "train")          # which split
     prompt_col    = cfg.get("prompt_column", "prompt")
     out_path      = cfg["out_path"]                    # local JSONL output
     gen_model     = cfg["generator_model"]
-    begin_row     = cfg["begin_row"]
-    end_row       = cfg["end_row"]
+    begin_row     = cfg.get("begin_row", 0)
+    end_row       = cfg.get("end_row")
     n             = int(cfg.get("n", 4))               # number of completions per prompt
-    
+
     # sampling parameters follow from the sal general config file.
     max_tokens    = int(cfg.get("max_tokens", 512))
     temperature   = float(cfg.get("temperature", 0.8))
     top_p         = float(cfg.get("top_p", 1.0))
 
-    # 1) load prompts from HF hub
-    ds = load_dataset(repo_id, split=split)
-    ds_filtered = ds.select(range(begin_row, end_row))
+    # 1) load prompts from CSV or HF hub
+    if csv_path:
+        print(f"Loading dataset from local CSV: {csv_path}")
+        df = pd.read_csv(csv_path)
+        if end_row is None:
+            end_row = len(df)
+        df_filtered = df.iloc[begin_row:end_row]
+        ds_filtered = Dataset.from_pandas(df_filtered)
+    elif repo_id:
+        print(f"Loading dataset from HF hub: {repo_id}")
+        ds = load_dataset(repo_id, split=split)
+        if end_row is None:
+            end_row = len(ds)
+        ds_filtered = ds.select(range(begin_row, end_row))
+    else:
+        raise ValueError("Must specify either 'csv_path' or 'dataset_repo' in config")
 
     if prompt_col not in ds_filtered.column_names:
         raise ValueError(f"Column '{prompt_col}' not in dataset columns {ds_filtered.column_names}")
@@ -48,7 +63,8 @@ def main():
     if len(prompts) == 0:
         raise ValueError("No rows in dataset split.")
 
-    print(f"Loaded {len(prompts)} prompts from {repo_id}")
+    source = csv_path if csv_path else repo_id
+    print(f"Loaded {len(prompts)} prompts from {source}")
     print(f"Will generate {n} completions per prompt (from config)")
 
     # 2) build generator (vLLM)
