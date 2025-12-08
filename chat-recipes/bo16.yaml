@@ -18,4 +18,4 @@ n: 16
 max_tokens: 2048
 
 # output
-out_path: ./writing/gen_bo16.jsonl
+out_path: ./writing/gen_bo16_complete.jsonl
