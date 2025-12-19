@@ -1,0 +1,17 @@
+# Hugging Face dataset
+dataset_repo: lmarena-ai/arena-human-preference-55k
+split: train
+prompt_column: prompt
+begin_row: 500
+end_row: 5000
+
+# models
+generator_model: Qwen/Qwen2.5-1.5B-Instruct
+reward_model: UW-Madison-Lee-Lab/VersaPRM # NCSOFT/Llama-3-OffsetBias-RM-8B
+
+# best-of-N
+n: 8
+max_tokens: 2048
+
+# output
+out_path: ./chat-results-9-11/gen_bo8.jsonl

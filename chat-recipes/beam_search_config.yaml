@@ -1,0 +1,25 @@
+# Beam Search Configuration for Chat
+generator_model: Qwen/Qwen2.5-1.5B-Instruct
+reward_model: UW-Madison-Lee-Lab/VersaPRM
+
+# Generation parameters
+temperature: 0.8
+top_p: 1.0
+max_tokens: 2048
+n: 4                 # number of beams
+beam_width: 2
+num_iterations: 5
+lookahead: 1
+agg_strategy: last   # or "mean", "max", "min", "sum"
+
+# Beam search options
+filter_duplicates: true
+sort_completed: true
+
+# Chat-specific settings
+system_prompt: "You are a helpful AI chat assistant. Provide clear, helpful responses to user questions."
+stop: ["\n\n", "Human:", "Assistant", "User", "Bot"]
+
+# Data processing
+dataset_start: 0
+dataset_end: 5000  # Adjust for testing
