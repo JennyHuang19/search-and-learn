@@ -50,19 +50,19 @@ def main():
         gpu_memory_utilization=config.gpu_memory_utilization,
         enable_prefix_caching=True,
         seed=config.seed,
-        tensor_parallel_size=num_gpus, # give all GPUs to the same model. this argument is about fitting a model on multiple GPUs.
-    ) # sometimes, in the presence of large models, you have to fit it on multiple GPUs, but here.
-    prm = load_prm(config) # centralized? think of it as 1 GPU. all GPUs are placed in 1 model.
+        tensor_parallel_size=num_gpus,
+    )
+    prm = load_prm(config)
 
     dataset = get_dataset(config)
-    dataset = dataset.map( # completions, scores, pred, completion_tokens.
+    dataset = dataset.map(
         approach_fn,
         batched=True,
         batch_size=config.search_batch_size,
         fn_kwargs={"config": config, "llm": llm, "prm": prm},
         desc="Running search",
         load_from_cache_file=False,
-    ) # a HuggingFace Dataset with columns: problem, completions, scores, pred, completion_tokens.
+    )
 
     dataset = score(dataset, config)
 
